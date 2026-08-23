@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Summary Assistant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,440;0,9..144,600;1,9..144,500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <span class="topbar__tag">Document Summary Assistant</span>
+      <span class="topbar__status" id="apiStatus" aria-live="polite">checking API&hellip;</span>
+    </header>
+
+    <main>
+      <h1 class="headline">
+        Feed it a document.<br />
+        Get back what
+        <span class="highlight">
+          matters
+          <svg class="squiggle" viewBox="0 0 210 16" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M2 9 Q 19 2, 36 9 T 70 9 T 104 9 T 138 9 T 172 9 T 206 9" />
+          </svg>
+        </span>.
+      </h1>
+      <p class="subhead">PDF or image in. A summary, key points, and main ideas out.</p>
+
+      <section class="panel" aria-label="Upload a document">
+        <label for="fileInput" class="dropzone" id="dropzone" tabindex="0">
+          <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" hidden />
+          <div class="dropzone__icon" aria-hidden="true">&#8613;</div>
+          <p class="dropzone__text" id="dropzoneText">Drag a file here, or <span class="link">browse</span></p>
+          <p class="dropzone__meta">PDF, JPG, or PNG &middot; up to 15MB</p>
+        </label>
+
+        <div class="lengthRow">
+          <span class="lengthRow__label">Length</span>
+          <div class="pillGroup" id="pillGroup" role="radiogroup" aria-label="Summary length">
+            <button type="button" class="pill" data-length="short" role="radio" aria-checked="false">Short</button>
+            <button type="button" class="pill is-active" data-length="medium" role="radio" aria-checked="true">Medium</button>
+            <button type="button" class="pill" data-length="long" role="radio" aria-checked="false">Long</button>
+          </div>
+        </div>
+
+        <button type="button" class="generateBtn" id="generateBtn" disabled>
+          <span id="generateBtnText">Choose a file first</span>
+        </button>
+
+        <p class="errorBanner" id="errorBanner" role="alert" hidden></p>
+      </section>
+
+      <section class="resultWrap" id="resultWrap" hidden>
+        <div class="page" aria-live="polite">
+          <div class="page__head">
+            <span class="page__filename" id="resultFilename"></span>
+            <span class="page__length" id="resultLength"></span>
+          </div>
+          <hr class="page__rule" />
+
+          <h2 class="page__section">Summary</h2>
+          <p class="page__summary" id="resultSummary"></p>
+
+          <h2 class="page__section">Key Points</h2>
+          <ul class="keyPoints" id="resultKeyPoints"></ul>
+
+          <h2 class="page__section">Main Ideas</h2>
+          <div class="ideaChips" id="resultMainIdeas"></div>
+        </div>
+
+        <button type="button" class="resetBtn" id="resetBtn">Summarize another document</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

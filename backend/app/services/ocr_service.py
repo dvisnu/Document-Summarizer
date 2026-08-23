@@ -1,6 +1,11 @@
 import io
 import pytesseract
 from PIL import Image
+from backend.app.config import get_settings
+
+_settings = get_settings()
+if _settings.tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = _settings.tesseract_cmd
 
 
 class OCRExtractionError(Exception):
