@@ -1,4 +1,5 @@
 :root {
+  /* --- Color tokens --- */
   --ink-950: #14181c;   /* app shell background */
   --ink-800: #1e242a;   /* panel background, one step up from shell */
   --ink-700: #2a323a;   /* borders/dividers on dark surfaces */
@@ -12,6 +13,7 @@
   --pen: #b8402f;       /* the one accent: red-pen annotation */
   --pen-soft: #b8402f1a;
 
+  /* --- Type --- */
   --font-display: "Fraunces", serif;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -226,6 +228,10 @@ body {
   width: 100%;
   margin-top: 20px;
   padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   font-family: var(--font-body);
   font-size: 15px;
   font-weight: 600;
@@ -235,6 +241,36 @@ body {
   color: #fff;
   cursor: pointer;
   transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.6s; /* keeps turning, just gently, instead of stopping dead */
+  }
+}
+
+/* While a request is in flight: dim the panel and block interaction,
+   so you can't change the file or length mid-submit */
+.panel.is-loading .dropzone,
+.panel.is-loading .pillGroup {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .generateBtn:hover:not(:disabled) {

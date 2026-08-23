@@ -1,9 +1,11 @@
+// Change this if your backend runs somewhere other than local uvicorn default.
 const API_BASE = "http://localhost:8000";
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB, matches backend limit
 const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
 const ACCEPTED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
 
+// --- Element references ---
 const apiStatus = document.getElementById("apiStatus");
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
@@ -11,6 +13,7 @@ const dropzoneText = document.getElementById("dropzoneText");
 const pillGroup = document.getElementById("pillGroup");
 const generateBtn = document.getElementById("generateBtn");
 const generateBtnText = document.getElementById("generateBtnText");
+const spinner = document.getElementById("spinner");
 const errorBanner = document.getElementById("errorBanner");
 const resultWrap = document.getElementById("resultWrap");
 const resultFilename = document.getElementById("resultFilename");
@@ -20,10 +23,14 @@ const resultKeyPoints = document.getElementById("resultKeyPoints");
 const resultMainIdeas = document.getElementById("resultMainIdeas");
 const resetBtn = document.getElementById("resetBtn");
 
-
+// --- State ---
 let selectedFile = null;
 let selectedLength = "medium";
 
+// =====================================================================
+// API health check — lets the user know immediately if the backend
+// isn't running, instead of finding out only after they hit "Generate".
+// =====================================================================
 async function checkApiHealth() {
   try {
     const res = await fetch(`${API_BASE}/api/health`);
@@ -39,6 +46,9 @@ async function checkApiHealth() {
 }
 checkApiHealth();
 
+// =====================================================================
+// File selection (click-to-browse AND drag-and-drop share this path)
+// =====================================================================
 function isAcceptedFile(file) {
   const ext = "." + file.name.split(".").pop().toLowerCase();
   return ACCEPTED_TYPES.includes(file.type) || ACCEPTED_EXTENSIONS.includes(ext);
@@ -66,6 +76,7 @@ fileInput.addEventListener("change", (e) => {
   if (e.target.files[0]) handleFileSelected(e.target.files[0]);
 });
 
+// Drag & drop
 ["dragenter", "dragover"].forEach((evt) =>
   dropzone.addEventListener(evt, (e) => {
     e.preventDefault();
@@ -85,6 +96,7 @@ dropzone.addEventListener("drop", (e) => {
   if (file) handleFileSelected(file);
 });
 
+// Let Enter/Space on the focused dropzone open the file picker (keyboard access)
 dropzone.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -92,7 +104,9 @@ dropzone.addEventListener("keydown", (e) => {
   }
 });
 
-
+// =====================================================================
+// Summary length pills (simple custom radio group)
+// =====================================================================
 pillGroup.addEventListener("click", (e) => {
   const pill = e.target.closest(".pill");
   if (!pill) return;
@@ -106,6 +120,9 @@ pillGroup.addEventListener("click", (e) => {
   selectedLength = pill.dataset.length;
 });
 
+// =====================================================================
+// Generate button state
+// =====================================================================
 function updateGenerateButton() {
   if (selectedFile) {
     generateBtn.disabled = false;
@@ -116,6 +133,9 @@ function updateGenerateButton() {
   }
 }
 
+// =====================================================================
+// Submit → FastAPI /api/summarize
+// =====================================================================
 generateBtn.addEventListener("click", async () => {
   if (!selectedFile) return;
 
@@ -134,6 +154,7 @@ generateBtn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!data.success) {
+      // Every error path on the backend returns {success: false, error: "..."}
       showError(data.error || "Something went wrong. Please try again.");
       return;
     }
@@ -148,9 +169,14 @@ generateBtn.addEventListener("click", async () => {
 
 function setLoading(isLoading) {
   generateBtn.disabled = isLoading;
+  spinner.hidden = !isLoading;
   generateBtnText.textContent = isLoading ? "Summarizing…" : "Generate Summary";
+  document.querySelector(".panel").classList.toggle("is-loading", isLoading);
 }
 
+// =====================================================================
+// Rendering results onto the "paper page"
+// =====================================================================
 function renderResult(data) {
   resultFilename.textContent = data.filename;
   resultLength.textContent = selectedLength;
@@ -174,7 +200,9 @@ function renderResult(data) {
   resultWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-
+// =====================================================================
+// Reset
+// =====================================================================
 resetBtn.addEventListener("click", () => {
   selectedFile = null;
   fileInput.value = "";
@@ -186,7 +214,9 @@ resetBtn.addEventListener("click", () => {
   dropzone.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
-
+// =====================================================================
+// Small helpers
+// =====================================================================
 function showError(message) {
   errorBanner.textContent = message;
   errorBanner.hidden = false;
