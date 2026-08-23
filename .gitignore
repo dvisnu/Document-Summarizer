@@ -1,0 +1,18 @@
+# Environment
+.env
+.env.*
+!.env.example
+venv/
+__pycache__/
+*.pyc
+ 
+# OS
+.DS_Store
+ 
+# Editor
+.vscode/
+.idea/
+ 
+# Uploaded/test artifacts 
+backend/tmp_uploads/
+ 
