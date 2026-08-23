@@ -1,5 +1,7 @@
-// Change this if your backend runs somewhere other than local uvicorn default.
-const API_BASE = "http://localhost:8000";
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", ""];
+const API_BASE = LOCAL_HOSTS.includes(window.location.hostname)
+  ? "http://localhost:8000"
+  : "https://document-summary-backend.onrender.com";
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB, matches backend limit
 const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];

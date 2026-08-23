@@ -1,0 +1,26 @@
+# Secrets 
+.env
+.env.*
+!.env.example
+
+# Local virtualenv
+.venv/
+venv/
+
+# Not part of the backend image
+frontend/
+samples/
+README.md
+
+# Build/VCS noise
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+backend/tmp_uploads/
+
+# Deploy config 
+render.yaml
