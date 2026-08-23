@@ -1,5 +1,4 @@
 :root {
-  /* --- Color tokens --- */
   --ink-950: #14181c;   /* app shell background */
   --ink-800: #1e242a;   /* panel background, one step up from shell */
   --ink-700: #2a323a;   /* borders/dividers on dark surfaces */
@@ -12,8 +11,8 @@
 
   --pen: #b8402f;       /* the one accent: red-pen annotation */
   --pen-soft: #b8402f1a;
+  --warn: #d9a441;      /* backend waking -- in-progress, not an error */
 
-  /* --- Type --- */
   --font-display: "Fraunces", serif;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -39,7 +38,6 @@ body {
   padding: 28px 20px 80px;
 }
 
-/* --- Top bar --- */
 .topbar {
   display: flex;
   align-items: center;
@@ -52,10 +50,26 @@ body {
   padding-bottom: 40px;
 }
 
+
 .topbar__status {
   display: flex;
   align-items: center;
   gap: 6px;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+.topbar__status:focus-visible {
+  outline: 1px solid var(--muted);
+  outline-offset: 3px;
 }
 
 .topbar__status::before {
@@ -64,17 +78,40 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
+  flex: none; 
 }
 
 .topbar__status.is-online::before {
   background: #6fae7f;
 }
 
+.topbar__status.is-waking::before {
+  background: var(--warn);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
 .topbar__status.is-offline::before {
   background: var(--pen);
 }
 
-/* --- Headline --- */
+.topbar__status.is-offline {
+  cursor: pointer;
+}
+
+.topbar__status.is-offline:hover {
+  color: var(--ink-100);
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .headline {
   font-family: var(--font-display);
   font-weight: 440;
@@ -428,17 +465,24 @@ body {
   color: var(--ink-100);
 }
 
-/* --- Reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   .resultWrap {
     animation: none;
   }
+
+  .topbar__status.is-waking::before {
+    animation: none;
+  }
 }
 
-/* --- Mobile --- */
 @media (max-width: 480px) {
   .app {
     padding: 20px 16px 60px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .panel {

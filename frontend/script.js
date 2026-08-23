@@ -4,10 +4,16 @@ const API_BASE = LOCAL_HOSTS.includes(window.location.hostname)
   : "https://document-summary-backend-3lgx.onrender.com";
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB, matches backend limit
+
+// Render free instances sleep after 15 min idle and take ~60s to wake
+const HEALTH_ATTEMPT_TIMEOUT_MS = 6000;
+const WAKE_BUDGET_MS = 90000;
+const HEALTH_TTL_MS = 10 * 60 * 1000;
+const SUMMARIZE_TIMEOUT_MS = 240000;
 const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
 const ACCEPTED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
 
-// --- Element references ---
+// Element references
 const apiStatus = document.getElementById("apiStatus");
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
@@ -25,32 +31,92 @@ const resultKeyPoints = document.getElementById("resultKeyPoints");
 const resultMainIdeas = document.getElementById("resultMainIdeas");
 const resetBtn = document.getElementById("resetBtn");
 
-// --- State ---
+// State
 let selectedFile = null;
 let selectedLength = "medium";
 
-// =====================================================================
-// API health check — lets the user know immediately if the backend
-// isn't running, instead of finding out only after they hit "Generate".
-// =====================================================================
-async function checkApiHealth() {
-  try {
-    const res = await fetch(`${API_BASE}/api/health`);
-    if (!res.ok) throw new Error("not ok");
-    apiStatus.textContent = "API connected";
-    apiStatus.classList.add("is-online");
-    apiStatus.classList.remove("is-offline");
-  } catch {
-    apiStatus.textContent = "API offline — start the backend";
-    apiStatus.classList.add("is-offline");
-    apiStatus.classList.remove("is-online");
-  }
-}
-checkApiHealth();
+// API health / wake-up
+const API_STATE_LABELS = {
+  checking: "checking API…",
+  waking: "waking backend… this can take a minute",
+  online: "API connected",
+  offline: "API offline — click to retry",
+};
 
-// =====================================================================
-// File selection (click-to-browse AND drag-and-drop share this path)
-// =====================================================================
+let apiState = "checking";
+let lastHealthyAt = 0;
+let wakeInFlight = null;
+
+function setApiStatus(state) {
+  apiState = state;
+  apiStatus.textContent = API_STATE_LABELS[state];
+  apiStatus.classList.toggle("is-online", state === "online");
+  apiStatus.classList.toggle("is-waking", state === "waking");
+  apiStatus.classList.toggle("is-offline", state === "offline");
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Strict on purpose: Render's HTML loading page must not count as healthy
+async function pingHealth(timeoutMs) {
+  const res = await fetch(`${API_BASE}/api/health`, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.status !== "ok") throw new Error("unexpected payload");
+}
+
+async function runWake() {
+  setApiStatus("checking");
+
+  const deadline = Date.now() + WAKE_BUDGET_MS;
+  let delay = 2000;
+  let sawFailure = false;
+
+  while (Date.now() < deadline) {
+    try {
+      await pingHealth(HEALTH_ATTEMPT_TIMEOUT_MS);
+      lastHealthyAt = Date.now();
+      setApiStatus("online");
+      return true;
+    } catch {
+      // Only after a real failure, so a warm backend never flashes this
+      if (!sawFailure) {
+        sawFailure = true;
+        setApiStatus("waking");
+      }
+      await sleep(delay);
+      delay = Math.min(delay * 1.5, 5000);
+    }
+  }
+
+  setApiStatus("offline");
+  return false;
+}
+
+// Handed to concurrent callers so a second polling loop can't start
+function wakeBackend() {
+  if (apiState === "online" && Date.now() - lastHealthyAt < HEALTH_TTL_MS) {
+    return Promise.resolve(true);
+  }
+  if (!wakeInFlight) {
+    wakeInFlight = runWake().finally(() => {
+      wakeInFlight = null;
+    });
+  }
+  return wakeInFlight;
+}
+
+apiStatus.addEventListener("click", () => {
+  if (apiState === "offline") wakeBackend();
+});
+
+wakeBackend();
+
+// File selection
 function isAcceptedFile(file) {
   const ext = "." + file.name.split(".").pop().toLowerCase();
   return ACCEPTED_TYPES.includes(file.type) || ACCEPTED_EXTENSIONS.includes(ext);
@@ -98,7 +164,6 @@ dropzone.addEventListener("drop", (e) => {
   if (file) handleFileSelected(file);
 });
 
-// Let Enter/Space on the focused dropzone open the file picker (keyboard access)
 dropzone.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -106,9 +171,7 @@ dropzone.addEventListener("keydown", (e) => {
   }
 });
 
-// =====================================================================
-// Summary length pills (simple custom radio group)
-// =====================================================================
+// Summary length pills
 pillGroup.addEventListener("click", (e) => {
   const pill = e.target.closest(".pill");
   if (!pill) return;
@@ -122,9 +185,7 @@ pillGroup.addEventListener("click", (e) => {
   selectedLength = pill.dataset.length;
 });
 
-// =====================================================================
 // Generate button state
-// =====================================================================
 function updateGenerateButton() {
   if (selectedFile) {
     generateBtn.disabled = false;
@@ -135,50 +196,82 @@ function updateGenerateButton() {
   }
 }
 
-// =====================================================================
-// Submit → FastAPI /api/summarize
-// =====================================================================
+// Submit → /api/summarize
 generateBtn.addEventListener("click", async () => {
   if (!selectedFile) return;
 
   hideError();
-  setLoading(true);
+
+  // May have spun down while the tab sat open
+  setLoading(true, "Waking backend…");
+  if (!(await wakeBackend())) {
+    showError(
+      "The backend isn't responding. It may still be starting up — give it a moment and try again."
+    );
+    setLoading(false);
+    return;
+  }
 
   const formData = new FormData();
   formData.append("file", selectedFile);
   formData.append("summary_length", selectedLength);
 
+  setLoading(true, "Summarizing…");
+
   try {
     const res = await fetch(`${API_BASE}/api/summarize`, {
       method: "POST",
       body: formData,
+      signal: AbortSignal.timeout(SUMMARIZE_TIMEOUT_MS),
     });
+
+    // Non-JSON means Render's proxy answered, not the app
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      setApiStatus("offline");
+      showError(
+        res.status >= 500
+          ? "The backend is starting up or restarting. Give it a minute and try again."
+          : `Unexpected response from the server (HTTP ${res.status}).`
+      );
+      return;
+    }
+
     const data = await res.json();
 
     if (!data.success) {
-      // Every error path on the backend returns {success: false, error: "..."}
       showError(data.error || "Something went wrong. Please try again.");
       return;
     }
 
+    lastHealthyAt = Date.now();
     renderResult(data);
   } catch (err) {
-    showError("Could not reach the backend. Is it running on " + API_BASE + "?");
+    if (err.name === "TimeoutError") {
+      showError(
+        "The summary is taking longer than expected. Try a shorter document, or try again."
+      );
+    } else {
+      setApiStatus("offline");
+      showError("Could not reach the backend. Check your connection and try again.");
+    }
   } finally {
     setLoading(false);
   }
 });
 
-function setLoading(isLoading) {
+function setLoading(isLoading, message = "Summarizing…") {
   generateBtn.disabled = isLoading;
   spinner.hidden = !isLoading;
-  generateBtnText.textContent = isLoading ? "Summarizing…" : "Generate Summary";
+  if (isLoading) {
+    generateBtnText.textContent = message;
+  } else {
+    updateGenerateButton();
+  }
   document.querySelector(".panel").classList.toggle("is-loading", isLoading);
 }
 
-// =====================================================================
-// Rendering results onto the "paper page"
-// =====================================================================
+// Render results
 function renderResult(data) {
   resultFilename.textContent = data.filename;
   resultLength.textContent = selectedLength;
@@ -202,9 +295,7 @@ function renderResult(data) {
   resultWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// =====================================================================
 // Reset
-// =====================================================================
 resetBtn.addEventListener("click", () => {
   selectedFile = null;
   fileInput.value = "";
@@ -216,9 +307,7 @@ resetBtn.addEventListener("click", () => {
   dropzone.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
-// =====================================================================
-// Small helpers
-// =====================================================================
+// Helpers
 function showError(message) {
   errorBanner.textContent = message;
   errorBanner.hidden = false;
