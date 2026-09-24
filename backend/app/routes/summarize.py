@@ -1,4 +1,5 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from backend.app.schema.summary import SummarizeResponse, SummaryLength
 from backend.app.services.ocr_service import OCRExtractionError, extract_text_from_image
@@ -31,9 +32,9 @@ async def summarize_document(
     # --- Route to the right extractor based on type ---
     try:
         if content_type in PDF_CONTENT_TYPES or filename.endswith(".pdf"):
-            raw_text = extract_text_from_pdf(file_bytes)
+            raw_text = await run_in_threadpool(extract_text_from_pdf, file_bytes)
         elif content_type in IMAGE_CONTENT_TYPES or filename.endswith((".jpg", ".jpeg", ".png")):
-            raw_text = extract_text_from_image(file_bytes)
+            raw_text = await run_in_threadpool(extract_text_from_image, file_bytes)
         else:
             raise HTTPException(
                 status_code=400,
@@ -45,7 +46,7 @@ async def summarize_document(
 
     # --- Summarize (small-doc or map-reduce, decided internally) ---
     try:
-        result = generate_summary(raw_text, summary_length)
+        result = await run_in_threadpool(generate_summary, raw_text, summary_length)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Summarization failed: {e}") from e
 

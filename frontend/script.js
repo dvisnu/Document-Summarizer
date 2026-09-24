@@ -97,6 +97,11 @@ async function runWake() {
   return false;
 }
 
+// Forces the next wakeBackend() past its cached result
+function invalidateHealth() {
+  lastHealthyAt = 0;
+}
+
 // Handed to concurrent callers so a second polling loop can't start
 function wakeBackend() {
   if (apiState === "online" && Date.now() - lastHealthyAt < HEALTH_TTL_MS) {
@@ -196,6 +201,59 @@ function updateGenerateButton() {
   }
 }
 
+// Render's edge answers a failed wake with a bare 5xx that carries no CORS
+// headers, so the browser blocks it and fetch() rejects instead of resolving.
+// Both shapes mean the same thing: the instance wasn't up for this request.
+// Only a fast failure is safe to resend. Once the request has been in flight
+// long enough for the server to have called Gemini, a retry would spend the
+// quota a second time, so past this window the error is surfaced instead.
+const COLD_START_FAIL_WINDOW_MS = 15000;
+
+class BackendAsleepError extends Error {
+  constructor(message, elapsedMs) {
+    super(message);
+    this.elapsedMs = elapsedMs;
+  }
+
+  get isSafeToResend() {
+    return this.elapsedMs <= COLD_START_FAIL_WINDOW_MS;
+  }
+}
+
+function buildFormData() {
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("summary_length", selectedLength);
+  return formData;
+}
+
+async function postSummarize() {
+  const startedAt = Date.now();
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/summarize`, {
+      method: "POST",
+      body: buildFormData(),
+      signal: AbortSignal.timeout(SUMMARIZE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // A real timeout is the app being slow, not absent — let it through as-is
+    if (err.name === "TimeoutError") throw err;
+    throw new BackendAsleepError(err.message, Date.now() - startedAt);
+  }
+
+  // Non-JSON means Render's proxy answered, not the app
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    if (res.status >= 500) {
+      throw new BackendAsleepError(`HTTP ${res.status}`, Date.now() - startedAt);
+    }
+    throw new Error(`Unexpected response from the server (HTTP ${res.status}).`);
+  }
+
+  return res.json();
+}
+
 // Submit → /api/summarize
 generateBtn.addEventListener("click", async () => {
   if (!selectedFile) return;
@@ -212,32 +270,33 @@ generateBtn.addEventListener("click", async () => {
     return;
   }
 
-  const formData = new FormData();
-  formData.append("file", selectedFile);
-  formData.append("summary_length", selectedLength);
-
   setLoading(true, "Summarizing…");
 
   try {
-    const res = await fetch(`${API_BASE}/api/summarize`, {
-      method: "POST",
-      body: formData,
-      signal: AbortSignal.timeout(SUMMARIZE_TIMEOUT_MS),
-    });
+    let data;
+    try {
+      data = await postSummarize();
+    } catch (err) {
+      if (!(err instanceof BackendAsleepError)) throw err;
+      // Failed slowly? The document may already have been summarized once.
+      if (!err.isSafeToResend) throw err;
 
-    // Non-JSON means Render's proxy answered, not the app
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      setApiStatus("offline");
-      showError(
-        res.status >= 500
-          ? "The backend is starting up or restarting. Give it a minute and try again."
-          : `Unexpected response from the server (HTTP ${res.status}).`
-      );
-      return;
+      // A free instance can be recycled between the health check and the
+      // upload, and the cached "online" state is what let this request
+      // through. Drop that cache, wake it for real, and send the file once more.
+      invalidateHealth();
+      setLoading(true, "Backend restarted — waking it again…");
+      if (!(await wakeBackend())) {
+        setApiStatus("offline");
+        showError(
+          "The backend went back to sleep and didn't wake in time. Give it a minute and try again."
+        );
+        return;
+      }
+
+      setLoading(true, "Summarizing…");
+      data = await postSummarize();
     }
-
-    const data = await res.json();
 
     if (!data.success) {
       showError(data.error || "Something went wrong. Please try again.");
@@ -251,9 +310,16 @@ generateBtn.addEventListener("click", async () => {
       showError(
         "The summary is taking longer than expected. Try a shorter document, or try again."
       );
+    } else if (err instanceof BackendAsleepError) {
+      setApiStatus("offline");
+      showError(
+        err.isSafeToResend
+          ? "The backend is starting up or restarting. Give it a minute and try again."
+          : "The backend stopped responding while summarizing this document. Try a smaller document, or give it a moment before retrying."
+      );
     } else {
       setApiStatus("offline");
-      showError("Could not reach the backend. Check your connection and try again.");
+      showError(err.message || "Could not reach the backend. Check your connection and try again.");
     }
   } finally {
     setLoading(false);

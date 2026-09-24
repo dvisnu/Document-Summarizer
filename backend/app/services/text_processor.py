@@ -2,10 +2,15 @@ import re
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-SINGLE_PASS_CHAR_LIMIT = 12_000
+# Gemini flash models take ~1M tokens, so a 12k-char cutoff sent ordinary
+# documents down the map-reduce path and spent one API call per 4k chars —
+# 40 sequential calls for a 40-page PDF. At ~4 chars/token these limits are
+# still a small fraction of the context window, and almost every real document
+# now finishes in a single call.
+SINGLE_PASS_CHAR_LIMIT = 200_000
 
-CHUNK_SIZE = 4_000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 40_000
+CHUNK_OVERLAP = 500
 
 
 def clean_text(text: str) -> str:
